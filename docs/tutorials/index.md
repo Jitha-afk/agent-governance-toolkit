@@ -22,7 +22,7 @@
 | 09 | [Prompt Injection Detection](09-prompt-injection-detection.md) | Detecting and preventing prompt injection |
 | 25 | [Security Hardening](25-security-hardening.md) | Production security best practices |
 | 26 | [SBOM & Signing](26-sbom-and-signing.md) | Software bill of materials, artifact signing |
-| 27 | [MCP Scan CLI](27-mcp-scan-cli.md) | Static analysis for MCP server security |
+| 27 | [MCP Scan CLI](27-mcp-scan-cli.md) | MCP 2025-11-25 lifecycle inspection across stdio, Streamable HTTP, and legacy SSE |
 | 45 | [Shift-Left Governance](45-shift-left-governance.md) | Pre-commit hooks, CI gates, build-time enforcement |
 | 46 | [Contributor Governance](46-contributor-governance.md) | Contributor reputation, spam detection, cross-project scanning |
 
