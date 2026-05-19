@@ -17,8 +17,7 @@ official MCP 2025-11-25 lifecycle: `initialize`,
 server advertises those capabilities, and transport-level shutdown. Live stdio scans launch configured local commands; live
 Streamable HTTP and legacy SSE scans connect to configured endpoints. For pull
 requests, staged commits, downloaded configs, or any other untrusted input, use
-`--static-only` so the CLI does not launch commands or connect to remote
-endpoints.
+`--static-only` so the CLI does not launch commands or connect to remote endpoints.
 
 > **Package:** `agent-os-kernel`
 > **CLI:** `mcp-scan`
@@ -511,9 +510,69 @@ for threat in result.threats:
 
 ---
 
+## Sanitized child environment
+
+When `mcp-scan` launches a stdio MCP server, it does **not** pass the operator's
+full environment to the child process. The child receives only:
+
+| Variable | Source |
+|----------|--------|
+| `PATH` | Inherited from parent |
+| `SYSTEMROOT` | Inherited from parent (Windows only) |
+| Server-specific `env` keys | From the MCP config `env` object |
+
+This prevents accidental credential leakage (tokens, cloud keys, secrets in
+`$HOME/.bashrc`) to untrusted MCP servers. If a server needs additional
+environment variables, declare them explicitly in the config:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "node",
+      "args": ["server.js"],
+      "env": {
+        "API_KEY": "${MCP_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Timed out waiting for initialize response` | Server does not speak line-delimited JSON-RPC on stdout, or takes too long to start | Verify the server works with the official MCP Inspector; increase `--timeout` |
+| `Server exited before responding` | Command not found, crash on startup, or missing runtime dependency | Run the command manually to check stderr output |
+| `Server args contain unresolved variables` | Config uses `${VAR}` placeholders without matching environment values | Set the variables in your shell or use `--static-only` to skip live inspection |
+| `HTTP Error 401: Unauthorized` | Remote server requires authentication headers | Add `"headers": {"Authorization": "Bearer <token>"}` to the server config |
+| `HTTP Error 404: Not Found` | Incorrect MCP endpoint URL | Verify the URL points to the MCP JSON-RPC endpoint (not a docs page) |
+| `Connection refused` | Remote server is not running or blocked by firewall | Confirm the server is reachable with `curl` before scanning |
+
+### Windows usage
+
+On Windows, scan your Claude Desktop config at:
+
+```powershell
+mcp-scan scan "$env:APPDATA\Claude\claude_desktop_config.json"
+```
+
+Or use the Python module directly:
+
+```powershell
+python -m agent_os.cli.mcp_scan scan "$env:APPDATA\Claude\claude_desktop_config.json" --json
+```
+
+---
+
 ## Next steps
 
-- Scan your local MCP config: `mcp-scan scan ~/.config/Claude/claude_desktop_config.json`
+- Scan your local MCP config:
+  - Linux/macOS: `mcp-scan scan ~/.config/Claude/claude_desktop_config.json`
+  - Windows: `mcp-scan scan "$env:APPDATA\Claude\claude_desktop_config.json"`
 - Store a fingerprint baseline for servers you trust.
 - Add `mcp-scan` to CI for repositories that ship MCP configs.
 - Validate server behavior interactively with the official MCP Inspector.
