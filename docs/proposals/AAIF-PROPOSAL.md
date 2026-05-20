@@ -6,7 +6,7 @@
 **Requested Level:** Sandbox → Incubation
 **License:** MIT
 **Primary Contact:** Agent Governance Toolkit Team (agentgovtoolkit@microsoft.com)
-**Status:** 🟢 Ready for submission -- Public Preview shipped (v3.2.0). 13,000+ tests. 5 SDK languages. 19 framework integrations. Microsoft-signed releases via ESRP.
+**Status:** 🟢 Ready for submission -- Public Preview shipped (v3.2.0). 5 SDK languages. 19 framework integrations. Microsoft-signed releases via ESRP.
 
 ---
 
@@ -90,7 +90,7 @@ The OWASP Agentic Top 10 codifies these risks. The Agent Governance Toolkit addr
 | **LangChain** | Callback handler + trust-verified tools | ✅ Shipped |
 | **CrewAI** | Trust-aware task delegation | ✅ Shipped |
 | **Google ADK** | GovernancePlugin (BasePlugin) | 📋 Proposed ([#4543](https://github.com/google/adk-python/issues/4543)) |
-| **OpenAI Agents SDK** | Published `openai-agents-trust` on PyPI | ✅ Shipped |
+| **OpenAI Agents SDK** | Published `agentmesh-openai-agents-trust` on PyPI | ✅ Shipped |
 | **Mastra** | `@agentmesh/mastra` npm package | ✅ Shipped, 19 tests |
 | **MCP** | MCP Kernel Server (stdio + HTTP) | ✅ Shipped, on npm + Glama |
 | **A2A Protocol** | A2A trust provider | ✅ Shipped |

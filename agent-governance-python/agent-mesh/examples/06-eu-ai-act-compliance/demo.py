@@ -13,6 +13,11 @@ Demonstrates:
 Runs entirely offline — no API keys required.
 """
 
+import sys
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from compliance_checker import (
     AgentProfile,
     EUAIActComplianceChecker,
@@ -135,7 +140,7 @@ def main() -> None:
         deployable = checker.can_deploy(agent)
         icon = "✅" if deployable else "🚫"
         status = "APPROVED" if deployable else "BLOCKED"
-        print(f"  {icon}  {_redact(label, 20):40s} → {status}")
+        print(f"  {icon}  {label:40s} -> {status}")
 
     # ------------------------------------------------------------------
     # Demo 5 — Prohibited (unacceptable-risk) system

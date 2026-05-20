@@ -9,15 +9,49 @@ Entries added via AuditLog or MerkleAuditChain get automatic hash chaining.
 
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, Any
 from pydantic import BaseModel, Field
 import hashlib
+import hmac
 import json
 import uuid
 
 if TYPE_CHECKING:
     from .audit_backends import AuditSink
+
+
+@dataclass(frozen=True)
+class _EnvContext:
+    """Immutable snapshot of execution-environment context captured at AuditLog init."""
+
+    sandbox_id: Optional[str]
+    environment: Optional[str]
+    container_runtime: Optional[str]
+
+
+def _capture_env_context() -> _EnvContext:
+    """Read execution-environment variables once and return an immutable snapshot.
+
+    Resolution rules:
+    * ``sandbox_id``: prefers ``OPENSHELL_SANDBOX_ID``; falls back to bare ``SANDBOX_ID``.
+    * ``environment``: reads ``AGT_ENVIRONMENT``.
+    * ``container_runtime``: reads ``OPENSHELL_CONTAINER_RUNTIME``.
+
+    Empty strings are treated as absent (``None``).
+    """
+    sandbox_id: Optional[str] = (
+        os.getenv("OPENSHELL_SANDBOX_ID") or os.getenv("SANDBOX_ID") or None
+    )
+    environment: Optional[str] = os.getenv("AGT_ENVIRONMENT") or None
+    container_runtime: Optional[str] = os.getenv("OPENSHELL_CONTAINER_RUNTIME") or None
+    return _EnvContext(
+        sandbox_id=sandbox_id,
+        environment=environment,
+        container_runtime=container_runtime,
+    )
 
 
 class AuditEntry(BaseModel):
@@ -59,6 +93,35 @@ class AuditEntry(BaseModel):
     trace_id: Optional[str] = None
     session_id: Optional[str] = None
 
+    # Execution-context enrichment (optional; not included in integrity hash)
+    sandbox_id: Optional[str] = None
+    environment: Optional[str] = None
+    container_runtime: Optional[str] = None
+    # Sandbox/environment context (auto-populated from env vars when available)
+    sandbox_id: Optional[str] = Field(
+        default=None,
+        description="Sandbox or container ID. Reads SANDBOX_ID or OPENSHELL_SANDBOX_ID env var.",
+    )
+    environment: Optional[str] = Field(
+        default=None,
+        description="Deployment environment. Reads AGT_ENVIRONMENT env var.",
+    )
+    compute_driver: Optional[str] = Field(
+        default=None,
+        description="Compute driver (e.g., docker, openshell, aca). Reads OPENSHELL_COMPUTE_DRIVER env var.",
+    )
+
+    def model_post_init(self, __context: Any) -> None:
+        """Auto-populate sandbox context fields from environment variables."""
+        if self.sandbox_id is None:
+            self.sandbox_id = (
+                os.environ.get("SANDBOX_ID") or os.environ.get("OPENSHELL_SANDBOX_ID") or None
+            )
+        if self.environment is None:
+            self.environment = os.environ.get("AGT_ENVIRONMENT") or None
+        if self.compute_driver is None:
+            self.compute_driver = os.environ.get("OPENSHELL_COMPUTE_DRIVER") or None
+
     def compute_hash(self) -> str:
         """Compute the SHA-256 hash of this entry's canonical fields.
 
@@ -85,7 +148,7 @@ class AuditEntry(BaseModel):
         Returns:
             ``True`` if ``entry_hash`` equals ``compute_hash()``.
         """
-        return self.entry_hash == self.compute_hash()
+        return hmac.compare_digest(self.entry_hash, self.compute_hash())
 
     # ── CloudEvents v1.0 ──────────────────────────────────
 
@@ -362,6 +425,8 @@ class AuditLog:
         self._by_agent: dict[str, list[str]] = {}
         self._by_type: dict[str, list[str]] = {}
         self._sink = sink
+        # Capture environment context once at init; never re-read per-entry.
+        self._env_context: _EnvContext = _capture_env_context()
 
     def log(
         self,
@@ -384,6 +449,9 @@ class AuditLog:
             outcome=outcome,
             policy_decision=policy_decision,
             trace_id=trace_id,
+            sandbox_id=self._env_context.sandbox_id,
+            environment=self._env_context.environment,
+            container_runtime=self._env_context.container_runtime,
         )
 
         self._chain.add_entry(entry)
@@ -495,7 +563,7 @@ class AuditLog:
         entries = self.query(start_time=start_time, end_time=end_time, limit=10000)
 
         return {
-            "exported_at": datetime.utcnow().isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
             "merkle_root": self._chain.get_root_hash(),
             "chain_root": self._chain.get_root_hash(),
             "entry_count": len(entries),

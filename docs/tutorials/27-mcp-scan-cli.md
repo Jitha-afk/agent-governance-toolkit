@@ -26,7 +26,7 @@ requests, staged commits, downloaded configs, or any other untrusted input, use
 
 ---
 
-## What you'll learn
+## What You'll Learn
 
 | Section | Topic |
 |---------|-------|

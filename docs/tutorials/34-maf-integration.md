@@ -4,7 +4,14 @@
 >
 > **Status:** ✅ Implemented — Middleware adapter with 18 passing tests. Joint integration with MAF team in progress.
 
-This tutorial shows how to add AGT governance to agents built with the [Microsoft Agent Framework](https://github.com/microsoft/agent-framework). You'll wire policy enforcement, capability guards, and audit logging into MAF's middleware pipeline so governance is transparent to the agent.
+---
+
+## What You'll Learn
+
+- Wiring AGT policy enforcement into MAF's middleware pipeline
+- Capability guards that restrict tool access per agent role
+- Audit logging for every governed MAF message
+- Three governance middleware layers (run, function, tool)
 
 ### Implementation Reference
 
@@ -197,7 +204,7 @@ tier1_agent = Agent(name="tier1-support", kernel=tier1_kernel, ...)
 admin_agent = Agent(name="admin-support", kernel=admin_kernel, ...)
 ```
 
-See the full demo: [`examples/demos/maf-integration/02_helpdesk_it.py`](../../demo/maf-integration/02_helpdesk_it.py)
+See the full demo: [`examples/demos/maf-integration/02_helpdesk_it.py`](../../examples/demos/maf-integration/02_helpdesk_it.py)
 
 ## Step 6 — Prompt Injection Detection
 
@@ -229,7 +236,7 @@ kernel.add_agent_middleware(
 support_agent = Agent(name="support", kernel=kernel, ...)
 ```
 
-See the full demo: [`examples/demos/maf-integration/03_contoso_support.py`](../../demo/maf-integration/03_contoso_support.py)
+See the full demo: [`examples/demos/maf-integration/03_contoso_support.py`](../../examples/demos/maf-integration/03_contoso_support.py)
 
 ## Step 7 — Folder-Level Policies for Multi-Agent Systems
 
@@ -259,9 +266,9 @@ result = evaluator.evaluate({
 
 | Demo | Scenario | Key Governance Features |
 |---|---|---|
-| [`01_contoso_bank.py`](../../demo/maf-integration/01_contoso_bank.py) | Banking | PII blocking, fund transfer denial, SOC2 audit trail |
-| [`02_helpdesk_it.py`](../../demo/maf-integration/02_helpdesk_it.py) | IT Support | Role-based tool access, privilege escalation prevention |
-| [`03_contoso_support.py`](../../demo/maf-integration/03_contoso_support.py) | Customer Chat | Jailbreak detection, system prompt extraction defense |
+| [`01_contoso_bank.py`](../../examples/demos/maf-integration/01_contoso_bank.py) | Banking | PII blocking, fund transfer denial, SOC2 audit trail |
+| [`02_helpdesk_it.py`](../../examples/demos/maf-integration/02_helpdesk_it.py) | IT Support | Role-based tool access, privilege escalation prevention |
+| [`03_contoso_support.py`](../../examples/demos/maf-integration/03_contoso_support.py) | Customer Chat | Jailbreak detection, system prompt extraction defense |
 
 ## Next Steps
 

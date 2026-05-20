@@ -18,6 +18,8 @@
 //! assert!(result.allowed);
 //! ```
 
+#![cfg_attr(test, allow(deprecated))]
+
 pub mod audit;
 pub mod control_support;
 pub mod governance_support;
@@ -25,14 +27,32 @@ pub mod identity;
 pub mod identity_support;
 pub mod integration_support;
 pub mod lifecycle;
-pub mod mcp;
+/// Deprecated: use the [`agentmesh-mcp`](https://crates.io/crates/agentmesh-mcp) crate directly.
+///
+/// `agentmesh::mcp` is a compatibility re-export of `agentmesh_mcp::mcp` and
+/// will be removed in the next major release. Standardize new code on the
+/// `agentmesh-mcp` crate.
+///
+/// Tracking issue:
+/// <https://github.com/microsoft/agent-governance-toolkit/issues/2013>.
+#[deprecated(
+    since = "3.5.0",
+    note = "use the `agentmesh-mcp` crate directly; `agentmesh::mcp` will be removed in the next major release (see issue #2013)"
+)]
+pub mod mcp {
+    pub use agentmesh_mcp::mcp::*;
+}
 pub mod policy;
+pub mod prompt_injection;
+pub(crate) mod regex_cache;
 pub mod reward_support;
 pub mod rings;
+pub mod sandbox;
 pub mod trust;
 pub mod trust_support;
 pub mod types;
 
+pub use agentmesh_mcp::mcp::*;
 pub use audit::AuditLogger;
 pub use control_support::{
     CircuitBreaker, CircuitState, ErrorBudget, HealthStatus, IncidentRecord, KillSwitch,
@@ -74,8 +94,13 @@ pub use integration_support::{
     ShadowAgent,
 };
 pub use lifecycle::{LifecycleEvent, LifecycleManager, LifecycleState};
-pub use mcp::*;
 pub use policy::{PolicyEngine, PolicyError};
+pub use prompt_injection::{
+    AuditRecord as PromptInjectionAuditRecord, DetectionConfig as PromptInjectionDetectionConfig,
+    DetectionOptions as PromptInjectionDetectionOptions, DetectionResult as PromptInjectionResult,
+    InjectionType, PromptInjectionConfig, PromptInjectionDetector, PromptInjectionError,
+    Sensitivity as PromptInjectionSensitivity, ThreatLevel as PromptInjectionThreatLevel,
+};
 pub use reward_support::{
     AgentRewardState, ContributionWeightedStrategy, DimensionType, DistributionResult,
     EqualSplitStrategy, HierarchicalStrategy, InteractionEdge, NetworkTrustEngine, ParticipantInfo,
@@ -290,12 +315,12 @@ policies:
         }
         let entries = client.audit.entries();
         assert_eq!(entries.len(), 5);
-        for i in 0..5 {
-            assert_eq!(entries[i].seq, i as u64);
+        for (i, entry) in entries.iter().enumerate().take(5) {
+            assert_eq!(entry.seq, i as u64);
         }
         // Each entry's prev_hash links to the previous entry's hash
-        for i in 1..5 {
-            assert_eq!(entries[i].previous_hash, entries[i - 1].hash);
+        for window in entries.windows(2) {
+            assert_eq!(window[1].previous_hash, window[0].hash);
         }
         assert!(client.audit.verify());
     }
@@ -346,6 +371,38 @@ policies:
             result.decision,
             PolicyDecision::RequiresApproval(_)
         ));
+    }
+
+    #[test]
+    fn test_approval_required_action_preserves_trust_and_audits_label() {
+        let yaml = r#"
+version: "1.0"
+agent: test
+policies:
+  - name: deploy-gate
+    type: approval
+    actions:
+      - "deploy.*"
+    min_approvals: 2
+"#;
+        let opts = ClientOptions {
+            policy_yaml: Some(yaml.to_string()),
+            ..Default::default()
+        };
+        let client = AgentMeshClient::with_options("approval-audit", opts).unwrap();
+        let did = client.identity.did.clone();
+        let before = client.trust.get_trust_score(&did).score;
+
+        let result = client.execute_with_governance("deploy.production", None);
+        let after = client.trust.get_trust_score(&did).score;
+
+        assert!(!result.allowed);
+        assert!(matches!(
+            result.decision,
+            PolicyDecision::RequiresApproval(_)
+        ));
+        assert_eq!(result.audit_entry.decision, "requires_approval");
+        assert_eq!(after, before);
     }
 
     #[test]

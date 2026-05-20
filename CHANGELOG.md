@@ -11,6 +11,120 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Rust prompt guard** - added custom configuration and audit interpretation examples, tuned escaped-sequence detection to reduce benign `\x` / `\u` false positives, and switched file-backed audit/federation persistence to compact atomic writes.
+
+
+## [3.6.0] - 2026-05-12
+
+### Highlights
+
+**Formal Specifications** - Six v1.0 specification documents published covering identity, trust, hypervisor, SRE, MCP security, framework adapters, and audit.
+
+**Security Hardening Sprint** - 319 fixes including path traversal guards, SSRF blocklist expansion, HMAC verification, shell injection prevention, and YAML deserialization hardening.
+
+**Cross-Org Agent Federation** - ExternalJWKSProvider (ADR-0007) enables federated identity verification across organizations.
+
+**Governance Sidecar Container** - Production-ready container image with OTEL bootstrap and Prometheus metrics endpoint.
+
+**Execution Ring Enforcement** - Privilege rings now enforce real isolation boundaries (previously stubs).
+
+### Added
+- **6 formal specifications** v1.0 - identity, trust, hypervisor, SRE, MCP security, adapters, audit (#2344, #2353, #2360, #2361, #2363, #2364, #2369, #2375)
+- **ExternalJWKSProvider** for cross-org agent federation (#2380)
+- **GovernanceEventSink SPI** for pluggable event routing (#2362)
+- **Governance sidecar container** with OTEL and Prometheus (#2307, #2312)
+- **Execution ring enforcement** beyond stubs (#2309)
+- **Trust ceiling propagation** for delegated child agents (#2306)
+- **StdoutAuditSink** with execution-context enrichment (#2302, #2305)
+- **Azure ACA sandbox provider** (#2236)
+- **AWS Bedrock Agent adapter** (#1833)
+- **RAG Governance** package with Cedar + LlamaIndex (#1754, #1820, #1975)
+- **Agent Shield** 5-stage guardrails integration (#1805)
+- **Copilot CLI governance package** (#2272)
+- **GitHub Actions governance gate** (#2102)
+- **NOT_IN operator** for policy evaluation (#2373)
+- **Presentation demos** - 6 self-contained offline scripts (#2390)
+- **25 retroactive ADRs** documenting prior decisions (#2329, #2377)
+
+### Fixed
+- **StdoutAuditSink syntax error** from overlapping merge (#2382)
+- **VectorClock** causal ordering and fail-closed SessionIsolation (#2346)
+- **Path traversal** guards in SRE, signing, and specs (#2352)
+- **HMAC verification** before nonce commit in MCP signer (#2354)
+- **SSRF blocklist** expanded for cloud metadata endpoints (#2358)
+- **YAML deserialization** hardened to JSON_SCHEMA (TypeScript) (#2333, #2334)
+- **Shell injection** prevention in Actions inputs (#2330)
+- **EU AI Act demo** Unicode encoding on Windows (#2388)
+
+### Changed
+- **Tutorials reorganized** into collapsible customer-centric categories (#2389)
+- **Repo structure simplified** with layout guide (#2391)
+- **ADK wrap/unwrap/get_callbacks** deprecated with runtime warnings (#2359)
+
+
+## [3.5.0] - 2026-05-07
+
+### Highlights
+
+**Citadel Integration** - Entra identity bridge and APIM policy fragment for enterprise-grade agent identity. Includes Phase 1 (docs, exporter, policy binding) and Phase 2 (Entra bridge, APIM fragment).
+
+**Multi-Agent Collective Policies** - evaluate constraints (rate limits, concurrent caps) across all agents in a workflow, not just individual agents.
+
+**Decision BOM Reconstructible View** - reconstruct the full decision lineage for any agent action from observability signals, with resilient partial reconstruction when sources are unavailable.
+
+**Centralized Version Management** - single `VERSION` file and `scripts/sync-version.py` propagates version across Python, TypeScript, .NET, and Rust.
+
+### Added
+- **Citadel Phase 1** - docs, governance exporter, policy binding, and example (#1778)
+- **Citadel Phase 2** - Entra identity bridge and APIM policy fragment (#1785)
+- **Multi-agent collective policy evaluator** - SUM/MAX/COUNT aggregates with sliding windows (#1776)
+- **Decision BOM** - reconstructible view from trust, policy, trace, and audit sources (#1777)
+- **Intent-Based Authorization** - declare/approve/execute/verify lifecycle with drift detection (Tutorial 48, #1781)
+- **Cost Governance** - tiered budgets, kill switches, anomaly detection (Tutorial 51, #1784)
+- **Identity attestation evidence model** (#1763)
+- **OTelLogsBackend** - audit event emission via OpenTelemetry logs (#1747)
+- **Aegis governance profile** - YAML to Cedar + Rego policy compiler (#1704)
+- **.NET Quickstart** - console app example (#1794)
+- **.NET unit tests** - governance client and policy evaluation (#1792)
+- **57 hardened tests** - edge cases, concurrency, resilience across intent, multi-agent, BOM, and cost (#1786)
+- **20 smoke tests** - subprocess-based demo execution for all 4 example scenarios (#1786)
+- **ADOPTERS.md** - Nobulex (#1703), Dayos (#1746) as first adopters
+- **GOVERNANCE.md** - contributor ladder and decision process (#1748)
+- **CHARTER.md, RELEASE.md** - AAIF readiness (#1787)
+- **MAINTAINERS.md, CODEOWNERS** (#1757)
+- **A365+AGT reference architecture** guide (#1768)
+- **ADR-0012** - cost governance via observability policies (#1769)
+- **Tutorials 48-51** - Intent Auth, Multi-Agent Policies, Decision BOM, Cost Governance (#1781-#1784)
+- **Rust quickstart** example (#1677)
+- **Korean README translation** (#1729)
+- Added a dbt-backed data quality evidence adapter example under `examples/data-quality-aware-governance/adapters/dbt/`, showing how dbt `run_results.json` output can be mapped into policy-readable evidence for AGT governance decisions.
+
+### Fixed
+- **Decision BOM resilience** - source exceptions no longer crash reconstruction; partial BOM returned (#1786)
+- **Version drift** - .NET packages bumped from 3.3.0 to 3.4.0, centralized in Directory.Build.props (#1803)
+- **CI hardening** - branch protection status reporting, DCO merge-commit skip, cspell terms, link-check (#1798-#1802)
+- **Go CI** - enabled cgo for race tests, narrowed coverage scope (#1779, #1780)
+- **Rust CI** - resolved build errors, suppressed dead_code warnings (#1728)
+- **Lazy imports** - framework adapters and rogue_detector guard (#1766)
+- **EU AI Act demo** - show agent names in deployment gate (#1790)
+- **Security audit** - self-match fix, persist-credentials, expression escaping (#1749-#1752)
+- **pip install** - corrected agent-discovery version constraint (#1751)
+
+### Changed
+- **Centralized version management** - root `VERSION` file + `scripts/sync-version.py` for all languages (#1803)
+- **Agent SRE README** - concise quick-start section (#1788)
+- **External maintainers** - Aileron, MythologIQ, Dayos added (#1764)
+
+
+## [3.4.0] - 2026-05-05
+
+### Fixed
+- **Contributor Reputation Check** — false-positive HIGH risk for established accounts. Accounts with age > 1yr, 50+ followers, and 20+ repos now have `recent_repo_burst` and `cross_repo_spray` signals dampened to LOW with bounded caps and abuse-signal guards (#1725)
+
+### Changed
+- **CI** — fixed ruff lint errors in agent-compliance CLI tools, added SC2153 to shellcheck disable list (#1724)
+- **README** — removed duplicate Docs and PyPI shield badges
 
 ## [3.3.0] - 2026-04-27
 

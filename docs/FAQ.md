@@ -5,7 +5,7 @@
 Technical Q&A for customers, partners, and evaluators of the Agent Governance
 Toolkit.
 
-> **See also:** [Quick Start](../QUICKSTART.md) · [Architecture](ARCHITECTURE.md) · [Known Limitations](LIMITATIONS.md) · [OWASP Compliance](OWASP-COMPLIANCE.md)
+> **See also:** [Quick Start](quickstart.md) · [Architecture](ARCHITECTURE.md) · [Known Limitations](LIMITATIONS.md) · [OWASP Compliance](OWASP-COMPLIANCE.md)
 
 ---
 
@@ -129,7 +129,7 @@ In practice:
 | AutoGen | Adapter | `AutoGenKernel` | Wrap your AutoGen agent. Governance injected at tool-call boundaries. |
 | LangChain / LangGraph | Adapter | `LangChainKernel` / `LangGraphKernel` | Wrap chains/graphs. Published on PyPI (`langgraph-trust`). |
 | CrewAI | Adapter | `CrewAIKernel` | Wrap crew tasks. Trust verification before inter-agent delegation. |
-| OpenAI Agents SDK | Middleware | `OpenAIAgentsKernel` | Async hooks on tool calls. Published on PyPI (`openai-agents-trust`). |
+| OpenAI Agents SDK | Middleware | `OpenAIAgentsKernel` | Async hooks on tool calls. Published on PyPI (`agentmesh-openai-agents-trust`). |
 | Google ADK | Adapter | `GoogleADKKernel` | Plugin-style integration via ADK's extension system. |
 | LlamaIndex | Middleware | `LlamaIndexAdapter` | `TrustedAgentWorker` + `TrustGatedQueryEngine` merged upstream. |
 | Haystack | Pipeline | `HaystackAdapter` | `GovernancePolicyChecker` + `TrustGate` pipeline components. |
@@ -346,7 +346,7 @@ In sidecar deployments, the governance sidecar can be updated independently of t
 
 | Ecosystem | Package | Status |
 |-----------|---------|--------|
-| PyPI | `agent-governance-toolkit[full]`, `agent-os-kernel`, `agentmesh-platform`, `agentmesh-runtime`, `agent-sre`, `agentmesh-marketplace`, `agentmesh-lightning`, `openai-agents-trust`, `langgraph-trust` | ✅ Published |
+| PyPI | `agent-governance-toolkit[full]`, `agent-os-kernel`, `agentmesh-platform`, `agentmesh-runtime`, `agent-sre`, `agentmesh-marketplace`, `agentmesh-lightning`, `agentmesh-openai-agents-trust`, `langgraph-trust` | ✅ Published |
 | npm | `@microsoft/agentmesh-sdk` | ✅ Published |
 | NuGet | `Microsoft.AgentGovernance` | ✅ Published |
 | crates.io | `agentmesh` | ✅ Published |
@@ -522,7 +522,7 @@ AGT follows an **adapter pattern**: core governance packages are vendor-neutral 
 - **Non-Foundry agents** (LangChain, CrewAI, OpenClaw, etc.) use adapters or the sidecar HTTP API — 2–3 lines of code.
 - The **governance capabilities are identical** regardless of framework — policy enforcement, identity verification, audit logging, trust scoring.
 
-See the [Independence & Dependency Policy](../INDEPENDENCE.md) for the full vendor-neutrality matrix and the [SDK Integration Types FAQ](#3-what-is-the-practical-impact-of-the-different-sdk-integration-types) for framework-by-framework details.
+See the [Independence & Dependency Policy](INDEPENDENCE.md) for the full vendor-neutrality matrix and the [SDK Integration Types FAQ](#3-what-is-the-practical-impact-of-the-different-sdk-integration-types) for framework-by-framework details.
 
 ---
 
@@ -700,5 +700,5 @@ See [Tutorial 40 — OTel Observability](tutorials/40-otel-observability.md) for
 | NuGet (.NET) | `Microsoft.AgentGovernance` |
 | DeepWiki | https://deepwiki.com/microsoft/agent-governance-toolkit |
 | OWASP Agentic Top 10 | https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/ |
-| Quick Start Guide | [QUICKSTART.md](../QUICKSTART.md) |
+| Quick Start Guide | [quickstart.md](quickstart.md) |
 | Deployment Guides | [docs/deployment/](deployment/) |

@@ -12,34 +12,50 @@ jobs:
     name: No Stubs/TODOs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - run: chmod +x scripts/ci/no-stubs.sh && scripts/ci/no-stubs.sh origin/${{ github.base_ref }}
+      - env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          chmod +x scripts/ci/no-stubs.sh
+          scripts/ci/no-stubs.sh "origin/$BASE_REF"
 
   no-custom-crypto:
     name: No Unauthorized Crypto
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - run: chmod +x scripts/ci/no-custom-crypto.sh && scripts/ci/no-custom-crypto.sh origin/${{ github.base_ref }}
+      - env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          chmod +x scripts/ci/no-custom-crypto.sh
+          scripts/ci/no-custom-crypto.sh "origin/$BASE_REF"
 
   security-audit-required:
     name: Security Audit Required
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - run: chmod +x scripts/ci/security-audit-required.sh && scripts/ci/security-audit-required.sh origin/${{ github.base_ref }}
+      - env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          chmod +x scripts/ci/security-audit-required.sh
+          scripts/ci/security-audit-required.sh "origin/$BASE_REF"
 
   vendored-patch-audit:
     name: Dependency Audit Trail
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - run: chmod +x scripts/ci/vendored-patch-audit.sh && scripts/ci/vendored-patch-audit.sh origin/${{ github.base_ref }}
+      - env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          chmod +x scripts/ci/vendored-patch-audit.sh
+          scripts/ci/vendored-patch-audit.sh "origin/$BASE_REF"

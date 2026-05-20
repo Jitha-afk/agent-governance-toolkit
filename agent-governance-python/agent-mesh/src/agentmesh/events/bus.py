@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import logging
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 
 # Standard event types
@@ -80,23 +84,34 @@ class EventBus(ABC):
 
 
 class InMemoryEventBus(EventBus):
-    """Synchronous in-process event bus with glob-style pattern matching."""
+    """Synchronous in-process event bus with glob-style pattern matching.
+
+    Thread-safe: subscription mutations and emit-time iteration are guarded
+    by a lock. Handlers are invoked outside the lock against a snapshot, so
+    a handler that subscribes/unsubscribes does not deadlock and does not
+    affect the in-flight emit.
+    """
 
     def __init__(self) -> None:
         self._subscriptions: list[tuple[str, EventHandler]] = []
+        self._lock = threading.Lock()
 
     def emit(self, event: Event) -> None:
-        for pattern, handler in self._subscriptions:
+        with self._lock:
+            snapshot = list(self._subscriptions)
+        for pattern, handler in snapshot:
             if fnmatch.fnmatch(event.event_type, pattern):
                 handler(event)
 
     def subscribe(self, pattern: str, handler: EventHandler) -> None:
-        self._subscriptions.append((pattern, handler))
+        with self._lock:
+            self._subscriptions.append((pattern, handler))
 
     def unsubscribe(self, handler: EventHandler) -> None:
-        self._subscriptions = [
-            (p, h) for p, h in self._subscriptions if h is not handler
-        ]
+        with self._lock:
+            self._subscriptions = [
+                (p, h) for p, h in self._subscriptions if h is not handler
+            ]
 
 
 class AsyncEventBus(EventBus):
@@ -116,7 +131,11 @@ class AsyncEventBus(EventBus):
         try:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
-            pass  # drop events when queue is full
+            logger.warning(
+                "Event bus queue full (max %d); dropping event type=%s",
+                self._queue.maxsize,
+                event.event_type,
+            )
 
     def subscribe(self, pattern: str, handler: EventHandler) -> None:
         self._subscriptions.append((pattern, handler))
@@ -164,3 +183,4 @@ class AsyncEventBus(EventBus):
                 continue
             except asyncio.CancelledError:
                 break
+

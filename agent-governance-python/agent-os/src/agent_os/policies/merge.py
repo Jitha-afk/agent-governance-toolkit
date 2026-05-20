@@ -53,13 +53,16 @@ def merge_policies(policy_chain: list[PolicyDocument]) -> list[PolicyRule]:
                 parent_rule, _parent_level = existing
 
                 if parent_rule.action == PolicyAction.DENY:
-                    # Security invariant: parent deny cannot be overridden
+                    # Security invariant: parent deny cannot be overridden.
+                    # Drop the child rule entirely — appending it would let a
+                    # higher-priority child rule defeat the parent deny at
+                    # evaluation time, which is exactly what this invariant
+                    # is meant to prevent.
                     logger.warning(
-                        "Rule '%s' at level %d tried to override parent deny — ignored",
+                        "Rule '%s' at level %d tried to override parent deny — dropped",
                         rule.name,
                         level,
                     )
-                    merged.append(rule)
                 else:
                     # Replace parent rule
                     merged = [r for r in merged if r.name != rule.name]
@@ -70,10 +73,20 @@ def merge_policies(policy_chain: list[PolicyDocument]) -> list[PolicyRule]:
                         rule.name,
                         level,
                     )
+            elif existing is not None:
+                # Same-name rule without override=True — drop it.
+                # The parent version stays; appending a duplicate would let
+                # the child's priority defeat the parent at evaluation time.
+                logger.debug(
+                    "Rule '%s' at level %d duplicates parent rule without "
+                    "override=True — dropped",
+                    rule.name,
+                    level,
+                )
             else:
+                # New rule name — append normally
                 merged.append(rule)
-                if rule.name not in rules_by_name:
-                    rules_by_name[rule.name] = (rule, level)
+                rules_by_name[rule.name] = (rule, level)
 
     merged.sort(key=lambda r: r.priority, reverse=True)
     return merged

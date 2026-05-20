@@ -161,12 +161,15 @@ from agent_os.context_budget import (
 )
 
 # LlamaFirewall Integration
-from agent_os.integrations.llamafirewall import (
-    FirewallMode,
-    FirewallResult,
-    FirewallVerdict,
-    LlamaFirewallAdapter,
-)
+try:
+    from agent_os.integrations.llamafirewall import (
+        FirewallMode,
+        FirewallResult,
+        FirewallVerdict,
+        LlamaFirewallAdapter,
+    )
+except ImportError:
+    pass
 
 # MCP Security — tool poisoning defense
 from agent_os.mcp_security import (
@@ -379,31 +382,78 @@ __all__ = [
     # Shift-Left Metrics
     "ShiftLeftTracker",
     "ViolationStage",
+
+    # Audit Logger + OTel Backend
+    "GovernanceAuditLogger",
+    "OTelLogsBackend",
+
+    # GovernanceEventSink SPI
+    "GovernanceEvent",
+    "GovernanceEventKind",
+    "GovernanceEventSink",
+    "GovernanceEventSinkBase",
+    "GovernanceEventProcessor",
+    "SinkExportResult",
+    "AuditBackendSinkAdapter",
 ]
 
 # ============================================================================
 # Content Governance (v3.0.2+)
 # ============================================================================
 
-from agent_os.content_governance import (
-    ContentDimension,
-    ContentQualityEvaluator,
-    ContentQualityReport,
-    QualityGate,
+try:
+    from agent_os.content_governance import (
+        ContentDimension,
+        ContentQualityEvaluator,
+        ContentQualityReport,
+        QualityGate,
+    )
+except ImportError:
+    pass
+
+try:
+    from agent_os.execution_context_policy import (
+        ContextualPolicyEngine,
+        EnforcementLevel,
+        ExecutionContext as ContextualExecutionContext,
+    )
+except ImportError:
+    pass
+
+try:
+    from agent_os.github_enterprise import (
+        EnterpriseGovernanceManager,
+        GovernanceTier,
+    )
+except ImportError:
+    pass
+
+try:
+    from agent_os.shift_left_metrics import (
+        ShiftLeftTracker,
+        ViolationStage,
+    )
+except ImportError:
+    pass
+
+try:
+    from agent_os.audit_logger import GovernanceAuditLogger
+except ImportError:
+    pass
+
+try:
+    from agent_os.otel_audit_backend import OTelLogsBackend
+except ImportError:
+    pass
+
+# GovernanceEventSink SPI (v3.7+)
+from agent_os.event_sink import (
+    AuditBackendSinkAdapter,
+    GovernanceEvent,
+    GovernanceEventKind,
+    GovernanceEventProcessor,
+    GovernanceEventSink,
+    GovernanceEventSinkBase,
+    SinkExportResult,
 )
 
-from agent_os.execution_context_policy import (
-    ContextualPolicyEngine,
-    EnforcementLevel,
-    ExecutionContext as ContextualExecutionContext,
-)
-
-from agent_os.github_enterprise import (
-    EnterpriseGovernanceManager,
-    GovernanceTier,
-)
-
-from agent_os.shift_left_metrics import (
-    ShiftLeftTracker,
-    ViolationStage,
-)

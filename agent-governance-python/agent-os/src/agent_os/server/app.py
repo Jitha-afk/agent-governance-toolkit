@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -29,7 +29,37 @@ from agent_os.server.models import (
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_cors_origins(raw: str) -> list[str]:
+    """Parse, validate, and return CORS origins.
+
+    Rejects ``*`` when credentials are enabled, and validates that each
+    origin has a scheme and a non-empty hostname.
+    """
+    origins: list[str] = []
+    for origin in raw.split(","):
+        origin = origin.strip()
+        if not origin:
+            continue
+        if origin == "*":
+            logger.warning(
+                "CORS origin '*' is not allowed with allow_credentials=True — skipping"
+            )
+            continue
+        from urllib.parse import urlparse
+        parsed = urlparse(origin)
+        if not parsed.scheme or not parsed.hostname:
+            logger.warning("Invalid CORS origin (missing scheme or host): %s — skipping", origin)
+            continue
+        origins.append(origin)
+    if not origins:
+        logger.warning("No valid CORS origins configured — falling back to localhost defaults")
+        origins = ["http://localhost:3000", "http://localhost:8080"]
+    return origins
+
 _EXECUTE_TOKENS_ENV = "AGENT_OS_EXECUTION_TOKENS"
+_EXECUTE_TOKENS_TTL_ENV = "AGENT_OS_EXECUTION_TOKEN_TTL_HOURS"
+_DEFAULT_EXECUTE_TOKEN_TTL_HOURS = 24
 _ALLOW_UNAUTHENTICATED_EXECUTE_ENV = "AGENT_OS_ALLOW_UNAUTHENTICATED_EXECUTE"
 
 
@@ -137,6 +167,23 @@ def _parse_execute_tokens(raw_tokens: str) -> dict[str, str]:
     return tokens
 
 
+def _read_bootstrap_ttl_from_env() -> timedelta:
+    raw = os.environ.get(_EXECUTE_TOKENS_TTL_ENV, "").strip()
+    if not raw:
+        return timedelta(hours=_DEFAULT_EXECUTE_TOKEN_TTL_HOURS)
+    try:
+        hours = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid {_EXECUTE_TOKENS_TTL_ENV}={raw!r}: must be a positive number of hours."
+        ) from exc
+    if hours <= 0:
+        raise ValueError(
+            f"Invalid {_EXECUTE_TOKENS_TTL_ENV}={raw!r}: must be strictly positive."
+        )
+    return timedelta(hours=hours)
+
+
 def _build_execute_authenticator_from_env() -> Any | None:
     from agent_os.mcp_session_auth import MCPSessionAuthenticator
 
@@ -144,9 +191,10 @@ def _build_execute_authenticator_from_env() -> Any | None:
     if not raw_tokens:
         return None
 
+    ttl = _read_bootstrap_ttl_from_env()
     authenticator = MCPSessionAuthenticator()
     for agent_id, token in _parse_execute_tokens(raw_tokens).items():
-        authenticator.bootstrap_session(agent_id, token)
+        authenticator.bootstrap_session(agent_id, token, ttl=ttl)
     return authenticator
 
 
@@ -209,7 +257,7 @@ def create_app(
     # -- CORS middleware ----------------------------------------------------
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080").split(","),
+        allow_origins=_parse_cors_origins(os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080")),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -231,7 +279,7 @@ def create_app(
         return JSONResponse(
             status_code=500,
             content=ErrorResponse(
-                detail=str(exc),
+                detail="An internal error occurred",
                 error_code="INTERNAL_ERROR",
             ).model_dump(),
         )

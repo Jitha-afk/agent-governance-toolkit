@@ -39,6 +39,7 @@ import logging
 import os
 import re
 import warnings
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -119,9 +120,14 @@ class DetectionConfig:
             ``"permissive"``.
         custom_patterns: Additional compiled regex patterns to check.
         blocklist: Exact strings that always trigger detection.
-        allowlist: Substrings that suppress detection.  Uses substring
-            matching (``allowed.lower() in text_lower``).  Entries must be
-            at least 3 characters after stripping whitespace.
+        allowlist: Substrings that suppress *individual matched patterns*
+            from triggering detection.  When an allowlisted term appears
+            in the input, any pattern match whose matched text overlaps
+            with the allowlisted region is suppressed.  Detection still
+            runs fully — the allowlist only filters results, never
+            short-circuits the pipeline.  Uses substring matching
+            (``allowed.lower() in text_lower``).  Entries must be at
+            least 3 characters after stripping whitespace.
 
     .. note::
 
@@ -365,17 +371,91 @@ class PromptInjectionDetector:
             print(f"Blocked: {result.explanation}")
     """
 
-    def __init__(self, config: DetectionConfig | None = None) -> None:
-        if config is None:
+    def __init__(
+        self,
+        config: DetectionConfig | None = None,
+        *,
+        injection_config: PromptInjectionConfig | None = None,
+    ) -> None:
+        """Initialize the detector.
+
+        Args:
+            config: Runtime detection settings (sensitivity, custom_patterns,
+                blocklist, allowlist).
+            injection_config: Pattern-set configuration loaded from YAML via
+                ``load_prompt_injection_config()``. When provided, the
+                detector iterates over these patterns instead of the
+                module-level defaults; this is the supported path for
+                customising the detection rule set.
+        """
+        if config is None and injection_config is None:
             warnings.warn(
                 "PromptInjectionDetector() uses built-in sample rules that may not "
                 "cover all prompt injection techniques. For production use, load an "
-                "explicit config with load_prompt_injection_config(). "
+                "explicit config with load_prompt_injection_config() and pass it "
+                "as injection_config=. "
                 "See examples/policies/prompt-injection-safety.yaml for a sample configuration.",
                 stacklevel=2,
             )
         self._config = config or DetectionConfig()
-        self._audit_log: list[AuditRecord] = []
+        self._injection_config = injection_config or PromptInjectionConfig()
+        self._compile_injection_patterns()
+        # Bounded ring buffer — unbounded list grew without limit on
+        # long-running deployments. 10k entries is enough headroom for
+        # any reasonable analysis window; older entries roll off.
+        self._audit_log: deque[AuditRecord] = deque(maxlen=10_000)
+
+    def _compile_injection_patterns(self) -> None:
+        """Compile pattern strings from ``self._injection_config`` into
+        ``re.Pattern`` objects stored on the instance. Detection methods
+        iterate these instance attributes rather than the module-level
+        defaults so a YAML-loaded config actually takes effect.
+        """
+        cfg = self._injection_config
+
+        # The defaults defined as module globals use IGNORECASE everywhere
+        # and MULTILINE for delimiter anchors. Round-tripping through
+        # pattern.pattern loses inline flags, so re-compile with both flags
+        # set; MULTILINE only affects ``^``/``$`` anchors so it is safe to
+        # apply uniformly.
+        flags = re.IGNORECASE | re.MULTILINE
+
+        def _compile(pats: list[str]) -> list[re.Pattern[str]]:
+            compiled: list[re.Pattern[str]] = []
+            for raw in pats:
+                try:
+                    compiled.append(re.compile(raw, flags))
+                except re.error:
+                    logger.warning(
+                        "Skipping invalid regex in injection config: %r", raw,
+                    )
+            return compiled
+
+        self._direct_override_patterns = _compile(cfg.direct_override_patterns)
+        self._delimiter_patterns = _compile(cfg.delimiter_patterns)
+        self._role_play_patterns = _compile(cfg.role_play_patterns)
+        self._context_manipulation_patterns = _compile(cfg.context_manipulation_patterns)
+        self._multi_turn_patterns = _compile(cfg.multi_turn_patterns)
+        self._encoding_patterns = _compile(cfg.encoding_patterns)
+        try:
+            self._base64_pattern: re.Pattern[str] = re.compile(cfg.base64_pattern)
+        except re.error:
+            logger.warning(
+                "Invalid base64 regex in injection config; falling back to default",
+            )
+            self._base64_pattern = _BASE64_PATTERN
+        self._suspicious_decoded_keywords = list(cfg.suspicious_decoded_keywords)
+        self._sensitivity_thresholds = dict(cfg.sensitivity_thresholds)
+        # Coerce string threat levels back to enum.
+        self._sensitivity_min_threat: dict[str, ThreatLevel] = {}
+        for k, v in cfg.sensitivity_min_threat.items():
+            if isinstance(v, ThreatLevel):
+                self._sensitivity_min_threat[k] = v
+            else:
+                try:
+                    self._sensitivity_min_threat[k] = ThreatLevel(v)
+                except ValueError:
+                    self._sensitivity_min_threat[k] = ThreatLevel.LOW
 
     # -- public API ---------------------------------------------------------
 
@@ -447,19 +527,7 @@ class PromptInjectionDetector:
         canary_tokens: list[str] | None,
     ) -> DetectionResult:
         """Core detection logic — runs all check methods and aggregates."""
-        # Fast-path: allowlisted inputs
         text_lower = text.lower()
-        for allowed in self._config.allowlist:
-            if allowed.lower() in text_lower:
-                result = DetectionResult(
-                    is_injection=False,
-                    threat_level=ThreatLevel.NONE,
-                    injection_type=None,
-                    confidence=0.0,
-                    explanation="Input matched allowlist entry",
-                )
-                self._record_audit(text, source, result)
-                return result
 
         # Fast-path: blocklisted inputs
         for blocked in self._config.blocklist:
@@ -497,10 +565,10 @@ class PromptInjectionDetector:
                 ))
 
         # Apply sensitivity filter
-        threshold = _SENSITIVITY_THRESHOLDS.get(
+        threshold = self._sensitivity_thresholds.get(
             self._config.sensitivity, 0.5,
         )
-        min_threat = _SENSITIVITY_MIN_THREAT.get(
+        min_threat = self._sensitivity_min_threat.get(
             self._config.sensitivity, ThreatLevel.LOW,
         )
 
@@ -509,6 +577,10 @@ class PromptInjectionDetector:
             f for f in findings
             if f[2] >= threshold and _THREAT_ORDER[f[1]] >= _THREAT_ORDER[min_threat]
         ]
+
+        # Post-detection allowlist filtering
+        if filtered and self._config.allowlist:
+            filtered = self._filter_allowlisted(filtered, text_lower)
 
         if not filtered:
             result = DetectionResult(
@@ -541,13 +613,63 @@ class PromptInjectionDetector:
         self._record_audit(text, source, result)
         return result
 
+    # -- allowlist filtering ------------------------------------------------
+
+    def _filter_allowlisted(
+        self,
+        findings: list[tuple[InjectionType, ThreatLevel, float, str]],
+        text_lower: str,
+    ) -> list[tuple[InjectionType, ThreatLevel, float, str]]:
+        # Pre-compute allowlisted spans
+        allowed_spans: list[tuple[int, int]] = []
+        for allowed in self._config.allowlist:
+            allowed_lower = allowed.lower()
+            start = 0
+            while True:
+                idx = text_lower.find(allowed_lower, start)
+                if idx == -1:
+                    break
+                allowed_spans.append((idx, idx + len(allowed_lower)))
+                start = idx + 1
+
+        if not allowed_spans:
+            return findings
+
+        kept: list[tuple[InjectionType, ThreatLevel, float, str]] = []
+        for finding in findings:
+            _, _, raw_pattern = finding[3].partition(":")
+            if not raw_pattern:
+                kept.append(finding)
+                continue
+
+            try:
+                compiled = re.compile(raw_pattern, re.IGNORECASE)
+            except re.error:
+                kept.append(finding)  # fail-closed
+                continue
+
+            matches = list(compiled.finditer(text_lower))
+            if not matches:
+                kept.append(finding)
+                continue
+
+            # Keep finding unless ALL matches fall within allowed spans
+            all_covered = all(
+                any(a_s <= m.start() and m.end() <= a_e for a_s, a_e in allowed_spans)
+                for m in matches
+            )
+            if not all_covered:
+                kept.append(finding)
+
+        return kept
+
     # -- check methods ------------------------------------------------------
 
     def _check_direct_override(
         self, text: str,
     ) -> list[tuple[InjectionType, ThreatLevel, float, str]]:
         findings: list[tuple[InjectionType, ThreatLevel, float, str]] = []
-        for pattern in _DIRECT_OVERRIDE_PATTERNS:
+        for pattern in self._direct_override_patterns:
             if pattern.search(text):
                 findings.append((
                     InjectionType.DIRECT_OVERRIDE,
@@ -561,7 +683,7 @@ class PromptInjectionDetector:
         self, text: str,
     ) -> list[tuple[InjectionType, ThreatLevel, float, str]]:
         findings: list[tuple[InjectionType, ThreatLevel, float, str]] = []
-        for pattern in _DELIMITER_PATTERNS:
+        for pattern in self._delimiter_patterns:
             if pattern.search(text):
                 findings.append((
                     InjectionType.DELIMITER_ATTACK,
@@ -577,7 +699,7 @@ class PromptInjectionDetector:
         findings: list[tuple[InjectionType, ThreatLevel, float, str]] = []
 
         # Check explicit encoding references
-        for pattern in _ENCODING_PATTERNS:
+        for pattern in self._encoding_patterns:
             if pattern.search(text):
                 findings.append((
                     InjectionType.ENCODING_ATTACK,
@@ -587,12 +709,12 @@ class PromptInjectionDetector:
                 ))
 
         # Check for base64-encoded suspicious content
-        for match in _BASE64_PATTERN.finditer(text):
+        for match in self._base64_pattern.finditer(text):
             candidate = match.group()
             try:
                 decoded = base64.b64decode(candidate).decode("utf-8", errors="ignore")
                 decoded_lower = decoded.lower()
-                for keyword in _SUSPICIOUS_DECODED_KEYWORDS:
+                for keyword in self._suspicious_decoded_keywords:
                     if keyword in decoded_lower:
                         findings.append((
                             InjectionType.ENCODING_ATTACK,
@@ -610,7 +732,7 @@ class PromptInjectionDetector:
         self, text: str,
     ) -> list[tuple[InjectionType, ThreatLevel, float, str]]:
         findings: list[tuple[InjectionType, ThreatLevel, float, str]] = []
-        for pattern in _ROLE_PLAY_PATTERNS:
+        for pattern in self._role_play_patterns:
             if pattern.search(text):
                 findings.append((
                     InjectionType.ROLE_PLAY,
@@ -624,7 +746,7 @@ class PromptInjectionDetector:
         self, text: str,
     ) -> list[tuple[InjectionType, ThreatLevel, float, str]]:
         findings: list[tuple[InjectionType, ThreatLevel, float, str]] = []
-        for pattern in _CONTEXT_MANIPULATION_PATTERNS:
+        for pattern in self._context_manipulation_patterns:
             if pattern.search(text):
                 findings.append((
                     InjectionType.CONTEXT_MANIPULATION,
@@ -657,7 +779,7 @@ class PromptInjectionDetector:
         self, text: str,
     ) -> list[tuple[InjectionType, ThreatLevel, float, str]]:
         findings: list[tuple[InjectionType, ThreatLevel, float, str]] = []
-        for pattern in _MULTI_TURN_PATTERNS:
+        for pattern in self._multi_turn_patterns:
             if pattern.search(text):
                 findings.append((
                     InjectionType.MULTI_TURN_ESCALATION,
