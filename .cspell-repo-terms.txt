@@ -123,6 +123,9 @@ inspectable
 modelcontextprotocol
 wfile
 rfile
+itertools
+stacklevel
+autouse
 Ravande
 relativedelta
 Rootfs
