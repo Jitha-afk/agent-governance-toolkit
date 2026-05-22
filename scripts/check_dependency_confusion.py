@@ -43,7 +43,7 @@ REGISTERED_PACKAGES = {
     "agentmesh-marketplace", "agentmesh_marketplace",
     "agent-discovery", "agent_discovery",
     "agentmesh-discovery", "agentmesh_discovery",
-    "agent-sandbox", "agent_sandbox",
+    "agt-sandbox", "agt_sandbox",
     # Common dependencies
     "pydantic", "pyyaml", "cryptography", "pynacl", "httpx", "aiohttp",
     "fastapi", "uvicorn", "requests", "packaging", "structlog", "click", "rich", "numpy", "scipy",
@@ -107,6 +107,12 @@ REGISTERED_PACKAGES = {
     # Microsoft Agent Framework (MAF) — not yet on PyPI, used in examples
     "agent-framework", "agent_framework",
     "agent-framework-openai", "agent_framework_openai",
+    # SpendGuard SDK (real PyPI package, used in examples)
+    "spendguard-sdk", "spendguard_sdk",
+    # Cedarling Python bindings (real PyPI package, optional dep)
+    "cedarling-python", "cedarling_python",
+    # Cedarling-AgentMesh integration (internal cross-package, local-only)
+    "cedarling-agentmesh", "cedarling_agentmesh",
     # Internal cross-package references (local-only, NOT on PyPI)
     # These are flagged as HIGH RISK if found in requirements.txt with version pins
     # instead of path references. See dependency confusion attack vector.
@@ -291,14 +297,15 @@ def check_notebook(filepath: str) -> list[str]:
         if cell.get("cell_type") != "code":
             continue
         for line in cell.get("source", []):
-            if "pip install" in line and not line.strip().startswith("#"):
-                packages = extract_package_names(line)
-                for pkg in packages:
-                    if pkg.lower() not in registered_lower:
-                        findings.append(
-                            f"  {filepath}: "
-                            f"'{pkg}' may not be registered on PyPI"
-                        )
+            if not line.strip().startswith("#"):
+                for match in PIP_INSTALL_RE.finditer(line):
+                    packages = extract_package_names(match.group(1))
+                    for pkg in packages:
+                        if pkg.lower() not in registered_lower:
+                            findings.append(
+                                f"  {filepath}: "
+                                f"'{pkg}' may not be registered on PyPI"
+                            )
     return findings
 
 
