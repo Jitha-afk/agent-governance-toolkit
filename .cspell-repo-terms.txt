@@ -213,6 +213,9 @@ inspectable
 modelcontextprotocol
 wfile
 rfile
+itertools
+stacklevel
+autouse
 Ravande
 pipefail
 pkgs

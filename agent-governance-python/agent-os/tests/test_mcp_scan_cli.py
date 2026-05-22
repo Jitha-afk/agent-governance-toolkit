@@ -137,6 +137,15 @@ def tools_only_config_file(tmp_path: Path) -> Path:
     return p
 
 
+@pytest.fixture(autouse=True)
+def _reset_handler_state():
+    """Reset mutable class-level lists on test handlers to prevent cross-test bleed."""
+    yield
+    _StreamableHTTPMCPHandler.requests = []
+    _LegacySSEMCPHandler.requests = []
+    _LegacySSEMCPHandler.responses = []
+
+
 # ============================================================================
 # Test load_config
 # ============================================================================
@@ -1035,7 +1044,7 @@ def test_parse_remote_mcp_servers_rejects_falsy_invalid_headers(tmp_path: Path):
 def test_inspect_streamable_http_server_rejects_protocol_mismatch():
     _StreamableHTTPMCPHandler.requests = []
     _StreamableHTTPMCPHandler.response_mode = "json"
-    _StreamableHTTPMCPHandler.protocol_response = "2024-11-05"
+    _StreamableHTTPMCPHandler.protocol_response = "2020-01-01"
     _StreamableHTTPMCPHandler.capabilities_response = {"tools": {}}
     server = _serve(_StreamableHTTPMCPHandler)
     try:
