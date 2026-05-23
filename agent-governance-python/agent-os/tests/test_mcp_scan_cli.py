@@ -17,6 +17,9 @@ from agent_os.cli.mcp_scan import (
     MCP_PROTOCOL_VERSION,
     RemoteMCPServerConfig,
     StdioMCPServerConfig,
+    _COMMAND_ALLOWLIST,
+    _configure_command_policy,
+    _validate_command,
     compare_fingerprints,
     compute_fingerprints,
     format_json_output,
@@ -1160,6 +1163,79 @@ def test_legacy_sse_rejects_cross_origin_endpoint_event():
 
     assert inspection.ok is False
     assert "outside the configured MCP origin" in (inspection.error or "")
+
+
+# ============================================================================
+# Test command allowlist (_validate_command)
+# ============================================================================
+
+
+class TestCommandAllowlist:
+    """Verify command allowlist blocks untrusted commands and allows known-safe ones."""
+
+    def setup_method(self):
+        _configure_command_policy(allow_all=False)
+
+    def teardown_method(self):
+        _configure_command_policy(allow_all=False)
+
+    @pytest.mark.parametrize("cmd", ["python", "node", "npx", "docker", "uvx", "dotnet", "cargo"])
+    def test_allowlisted_commands_pass(self, cmd):
+        _validate_command(cmd)  # Should not raise
+
+    @pytest.mark.parametrize("cmd", ["python.exe", "node.exe", "npx.cmd", "python3.bat"])
+    def test_allowlisted_commands_with_extensions_pass(self, cmd):
+        _validate_command(cmd)  # Should not raise
+
+    def test_full_path_to_allowed_command_passes(self):
+        _validate_command("/usr/bin/python3")
+        _validate_command("C:\\Program Files\\nodejs\\node.exe")
+
+    @pytest.mark.parametrize("cmd", ["curl", "wget", "bash", "sh", "rm", "powershell", "cmd"])
+    def test_disallowed_commands_raise(self, cmd):
+        with pytest.raises(RuntimeError, match="not on the allowed command list"):
+            _validate_command(cmd)
+
+    def test_path_traversal_command_blocked(self):
+        with pytest.raises(RuntimeError, match="not on the allowed command list"):
+            _validate_command("../../bin/evil")
+
+    def test_allow_commands_flag_bypasses_check(self):
+        _configure_command_policy(allow_all=True)
+        _validate_command("curl")  # Should not raise
+        _validate_command("/tmp/evil-binary")  # Should not raise
+
+    def test_sys_executable_is_allowed(self):
+        _validate_command(sys.executable)  # Used by all stdio tests
+
+
+class TestCommandAllowlistCLI:
+    """Test --allow-commands flag via CLI entry point."""
+
+    def setup_method(self):
+        _configure_command_policy(allow_all=False)
+
+    def teardown_method(self):
+        _configure_command_policy(allow_all=False)
+
+    def test_scan_blocks_disallowed_command(self, tmp_path: Path):
+        config = tmp_path / "mcp.json"
+        config.write_text(json.dumps({"mcpServers": {"evil": {"command": "curl", "args": ["http://evil"]}}}))
+        ret = main(["scan", str(config)])
+        assert ret == 2  # critical finding from blocked command
+
+    def test_scan_allow_commands_flag_permits_execution(self, tmp_path: Path):
+        config = tmp_path / "mcp.json"
+        config.write_text(json.dumps({"mcpServers": {"custom": {"command": "curl", "args": ["--version"]}}}))
+        # With --allow-commands, the command is permitted (will fail on connect but not on validation)
+        ret = main(["scan", str(config), "--allow-commands"])
+        assert ret == 2  # fails on inspection (curl isn't an MCP server) but NOT on allowlist
+
+    def test_static_only_skips_command_validation(self, tmp_path: Path):
+        config = tmp_path / "mcp.json"
+        config.write_text(json.dumps({"mcpServers": {"evil": {"command": "curl", "args": []}}}))
+        ret = main(["scan", str(config), "--static-only"])
+        assert ret == 0  # static-only never executes commands
 
 
 # ============================================================================
