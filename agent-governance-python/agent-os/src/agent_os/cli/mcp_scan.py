@@ -59,6 +59,39 @@ def _configure_tls(*, verify: bool = True) -> None:
         _SSL_CONTEXT.check_hostname = False
         _SSL_CONTEXT.verify_mode = ssl.CERT_NONE
 
+# Allowlist of known-safe MCP server runtime commands (basename without extension).
+_COMMAND_ALLOWLIST: set[str] = {
+    "node", "npx", "python", "python3", "uvx", "uv", "pip", "pipx",
+    "docker", "podman", "deno", "bun", "tsx", "ts-node",
+    "dotnet", "java", "go", "cargo",
+}
+
+# Module-level flag; set via --allow-commands CLI flag.
+_ALLOW_ALL_COMMANDS: bool = False
+
+
+def _configure_command_policy(*, allow_all: bool = False) -> None:
+    """Set command execution policy. Call once from CLI entry point."""
+    global _ALLOW_ALL_COMMANDS  # noqa: PLW0603
+    _ALLOW_ALL_COMMANDS = allow_all
+
+
+def _validate_command(command: str) -> None:
+    """Raise if command is not on the allowlist and policy is enforced."""
+    if _ALLOW_ALL_COMMANDS:
+        return
+    basename = os.path.basename(command).lower()
+    for ext in (".exe", ".cmd", ".bat"):
+        if basename.endswith(ext):
+            basename = basename[: -len(ext)]
+            break
+    if basename not in _COMMAND_ALLOWLIST:
+        raise RuntimeError(
+            f"Command {command!r} is not on the allowed command list. "
+            f"Use --allow-commands to permit execution of untrusted commands, "
+            f"or use --static-only to scan without executing."
+        )
+
 
 @dataclass
 class SecurityFinding:
@@ -483,9 +516,11 @@ class _StdioJSONRPCClient:
         self._next_id = 1
         self._stdout_queue: queue.Queue[str] = queue.Queue()
         self._stderr_lines: list[str] = []
+        self._stderr_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
 
     def start(self) -> None:
+        _validate_command(self.server.command)
         env = _sanitized_child_env()
         env.update(self.server.env)
         self.process = subprocess.Popen(  # noqa: S603 - command comes from user MCP config by design.
@@ -517,13 +552,15 @@ class _StdioJSONRPCClient:
     def _read_stderr(self) -> None:
         assert self.process is not None and self.process.stderr is not None
         for line in self.process.stderr:
-            self._stderr_lines.append(line.rstrip("\n"))
-            if len(self._stderr_lines) > 20:
-                del self._stderr_lines[:-20]
+            with self._stderr_lock:
+                self._stderr_lines.append(line.rstrip("\n"))
+                if len(self._stderr_lines) > 20:
+                    del self._stderr_lines[:-20]
 
     def stderr_tail(self) -> str:
         """Return a bounded stderr tail for diagnostics."""
-        return "\n".join(self._stderr_lines[-20:])
+        with self._stderr_lock:
+            return "\n".join(self._stderr_lines[-20:])
 
     def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Send a JSON-RPC request and wait for the matching response."""
@@ -562,7 +599,7 @@ class _StdioJSONRPCClient:
         self.process.stdin.flush()
 
     def close(self) -> None:
-        """Terminate the child process."""
+        """Terminate the child process and join reader threads."""
         if self.process is None:
             return
         try:
@@ -577,6 +614,8 @@ class _StdioJSONRPCClient:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
+        for thread in self._threads:
+            thread.join(timeout=2)
 
 
 
@@ -849,6 +888,8 @@ def inspect_stdio_server(
     finally:
         client.close()
 
+
+_REQUEST_ID_COUNTER = itertools.count(1)
 
 
 _REQUEST_ID_COUNTER = itertools.count(1)
@@ -1148,7 +1189,8 @@ def _open_legacy_sse(url: str, headers: Mapping[str, str], timeout: float) -> tu
     req = urllib.request.Request(url, method="GET", headers={**headers, "Accept": "text/event-stream"})
     response = urllib.request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT)  # noqa: S310 - user MCP endpoint by design.
     message_queue: queue.Queue[dict[str, Any]] = queue.Queue()
-    endpoint_holder = {"endpoint": ""}
+    endpoint_event = threading.Event()
+    endpoint_holder: list[str] = [""]
 
     def reader() -> None:
         event = "message"
@@ -1165,7 +1207,8 @@ def _open_legacy_sse(url: str, headers: Mapping[str, str], timeout: float) -> tu
                 if data_lines:
                     data = "\n".join(data_lines)
                     if event == "endpoint":
-                        endpoint_holder["endpoint"] = data
+                        endpoint_holder[0] = data
+                        endpoint_event.set()
                     else:
                         try:
                             parsed = json.loads(data)
@@ -1182,15 +1225,14 @@ def _open_legacy_sse(url: str, headers: Mapping[str, str], timeout: float) -> tu
                 data_lines.append(line[5:].lstrip())
 
     threading.Thread(target=reader, daemon=True).start()
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline and not endpoint_holder["endpoint"]:
-        time.sleep(0.01)
-    if not endpoint_holder["endpoint"]:
+    if not endpoint_event.wait(timeout=timeout):
+        response.close()
         raise TimeoutError("Timed out waiting for legacy SSE endpoint event")
-    endpoint = urllib.parse.urljoin(url, endpoint_holder["endpoint"])
+    endpoint = urllib.parse.urljoin(url, endpoint_holder[0])
     base = urllib.parse.urlparse(url)
     follow_up = urllib.parse.urlparse(endpoint)
     if (follow_up.scheme, follow_up.netloc) != (base.scheme, base.netloc):
+        response.close()
         raise RuntimeError("Legacy SSE endpoint event resolved outside the configured MCP origin")
     return response, endpoint, message_queue
 
@@ -1881,6 +1923,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not launch or connect to MCP servers; scan only inline tool definitions and config metadata",
     )
     scan_parser.add_argument("--json", action="store_true", help="Output in JSON format")
+    scan_parser.add_argument("--allow-commands", action="store_true", help="Allow execution of commands not on the default allowlist")
     scan_parser.add_argument("--no-verify-tls", action="store_true", help="Skip TLS certificate verification for remote endpoints")
 
     fp_parser = subparsers.add_parser("fingerprint", help="Register/compare tool fingerprints")
@@ -1890,6 +1933,7 @@ def build_parser() -> argparse.ArgumentParser:
     fp_parser.add_argument("--timeout", type=float, default=10.0, help="Per-request timeout")
     fp_parser.add_argument("--static-only", action="store_true", help="Fingerprint inline tools only")
     fp_parser.add_argument("--json", action="store_true", help="Output in JSON format")
+    fp_parser.add_argument("--allow-commands", action="store_true", help="Allow execution of commands not on the default allowlist")
     fp_parser.add_argument("--no-verify-tls", action="store_true", help="Skip TLS certificate verification for remote endpoints")
 
     report_parser = subparsers.add_parser("report", help="Generate a full security report")
@@ -1898,6 +1942,7 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--timeout", type=float, default=10.0, help="Per-request timeout")
     report_parser.add_argument("--static-only", action="store_true", help="Report on inline tools only")
     report_parser.add_argument("--json", action="store_true", help="Output in JSON format")
+    report_parser.add_argument("--allow-commands", action="store_true", help="Allow execution of commands not on the default allowlist")
     report_parser.add_argument("--no-verify-tls", action="store_true", help="Skip TLS certificate verification for remote endpoints")
 
     return parser
@@ -1910,6 +1955,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.command:
         parser.print_help()
         return 0
+    if getattr(args, "allow_commands", False):
+        _configure_command_policy(allow_all=True)
     if getattr(args, "no_verify_tls", False):
         _configure_tls(verify=False)
     if args.command == "scan":
